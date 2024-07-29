@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	// "os"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,10 +17,6 @@ type model struct {
 func initialModel() model {
 	return model{
 		choices: []string{"Buy carrots", "Buy celery", "Buy kohlrabi"},
-
-		// A map which indicates which choices are selected. We're using
-		// the map like a mathematical set. The keys refer to the indexes
-		// of the `choices` slice, above.
 		selected: make(map[int]struct{}),
 	}
 }
@@ -35,11 +31,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "up", "w":
+		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
-		case "down", "s":
+		case "down", "j":
 			if m.cursor < len(m.choices)-1 {
 				m.cursor++
 			}
@@ -74,25 +70,19 @@ func (m model) View() string {
 	}
 
 	s += "\nPress q to quit.\n"
-
-	return s
+	border:= lipgloss.NewStyle().
+						Foreground(lipgloss.Color("121")).
+						Width(155).
+						Height(40).
+						BorderStyle(lipgloss.RoundedBorder()).
+						Margin(0,10)
+	return border.Render(s)
 }
 
 func main() {
-	// p := tea.NewProgram(initialModel())
-	// if _, err := p.Run(); err != nil {
-	// 	fmt.Printf("%v", err)
-	// 	os.Exit(1)
-	// }
-
-	var style = lipgloss.NewStyle().
-    Bold(true).
-    Foreground(lipgloss.Color("#FAFAFA")).
-    Background(lipgloss.Color("#7D56F4")).
-    PaddingTop(2).
-    PaddingLeft(7).
-    Width(20)
-
-	fmt.Println(style.Render("Hello"))
-
+	p := tea.NewProgram(initialModel())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Alas, there's been an error: %v", err)
+		os.Exit(1)
+	}
 }
