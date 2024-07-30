@@ -29,6 +29,27 @@ func InitServer() *WsServer{
 	}
 }
 
+func handleMsg(ws *WsServer,){
+	for {
+		select{
+		
+
+		default:
+			_, message, err := ws.Conn.ReadMessage()
+			if err != nil {
+				log.Println(err)
+				return
+			}
+	
+			fmt.Println(">Received message:", string(message))	
+			msg := &Message{
+				Text: string(message),
+			}		
+			ws.Broadcast <- msg
+		}
+	}
+}
+
 func (ws *WsServer)HandleWsConn(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	ws.Conn = conn
@@ -40,22 +61,12 @@ func (ws *WsServer)HandleWsConn(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 	
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		fmt.Println(">Received message:", string(message))	
-		msg := &Message{
-			Text: string(message),
-		}		
-		ws.Broadcast <- msg
-	}
+	handleMsg(ws)
+	
 }
 
 func (ws *WsServer)BroadcastMsg(stopRoutine <-chan interface{}){
+	outer:
 	for{	
 		select{
 		case msg := <-ws.Broadcast:
@@ -71,16 +82,9 @@ func (ws *WsServer)BroadcastMsg(stopRoutine <-chan interface{}){
 
 		case <-stopRoutine:
 			fmt.Println("Closing Broadcast ...")
-			return
+			break outer;
 		}
 	}
 }
 
-func (ws *WsServer)ReadAndEmitMsg(msg string){
-	err:= ws.Conn.WriteMessage(websocket.TextMessage,[]byte(msg))
-	if err!= nil{
-		fmt.Println("Write Error: ",err)
-		ws.Conn.Close()
-		delete(ws.Clients,ws.Conn)
-	}
-}
+
