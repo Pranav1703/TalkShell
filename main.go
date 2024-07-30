@@ -31,7 +31,7 @@ func main(){
 	handler := http.NewServeMux()
 	
 	s := http.Server{
-		Addr: ":3000",
+		Addr: "localhost:3000",
 		Handler: handler,
 	}
 
@@ -60,11 +60,6 @@ func main(){
 			fmt.Println("Choose between server or client")
 	}
 
-	wg.Add(1)
-	go func(){
-		defer wg.Done()
-		wsServer.BroadcastMsg(stopRoutine)
-	}()
 
 	<-closeSignal
 	fmt.Println("closing all goroutines")
