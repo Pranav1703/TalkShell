@@ -1,88 +1,58 @@
 package main
 
 import (
+	"TalkShell/client"
+	"TalkShell/server"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
-type model struct {
-	cursor   int
-	choices  []string
-	selected map[int]struct{}
-}
+func main(){
+	
+	closeSignal := make(chan os.Signal,1)
+	stopRoutine := make(chan interface{})
+	signal.Notify(closeSignal,syscall.SIGINT,syscall.SIGTERM)
 
-func initialModel() model {
-	return model{
-		choices: []string{"Buy carrots", "Buy celery", "Buy kohlrabi"},
-		selected: make(map[int]struct{}),
-	}
-}
+	var wg sync.WaitGroup
 
-func (m model) Init() tea.Cmd {
-	return tea.SetWindowTitle("Grocery List")
-}
+	wsServer := server.InitServer()
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
-			}
-		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
-		}
+	fmt.Println("CHOOSE: server or cient")
+	var choice string
+	fmt.Scanf("%s",choice)
+	switch choice {
+		case "server":
+			wg.Add(1)
+			go func(){
+				defer wg.Done()
+				http.HandleFunc("/",wsServer.HandleWsConn)
+				log.Fatal(http.ListenAndServe(":3000", nil))
+			}()
+		case "client":
+			wg.Add(1)
+			go func(){
+				defer wg.Done()
+				client.Start(wsServer,stopRoutine)
+			}()
+			
+		default:
+			fmt.Println("Choose between server or client")
 	}
 
-	return m, nil
-}
+	wg.Add(1)
+	go func(){
+		defer wg.Done()
+		wsServer.BroadcastMsg(stopRoutine)
+	}()
 
-func (m model) View() string {
-	s := "What should we buy at the market?\n\n"
+	<-closeSignal
+	fmt.Println("closing all goroutines")
+	close(stopRoutine)
 
-	for i, choice := range m.choices {
-		cursor := " "
-		if m.cursor == i {
-			cursor = ">"
-		}
-
-		checked := " "
-		if _, ok := m.selected[i]; ok {
-			checked = "x"
-		}
-
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
-	}
-
-	s += "\nPress q to quit.\n"
-	border:= lipgloss.NewStyle().
-						Foreground(lipgloss.Color("121")).
-						Width(155).
-						Height(40).
-						BorderStyle(lipgloss.RoundedBorder()).
-						Margin(0,10)
-	return border.Render(s)
-}
-
-func main() {
-	p := tea.NewProgram(initialModel())
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
-		os.Exit(1)
-	}
+	wg.Wait()
 }
