@@ -4,57 +4,92 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+
+	// "log"
+	"net"
 	"os"
 	"strings"
-
-	"github.com/gorilla/websocket"
 )
 
-func readFromServer(conn *websocket.Conn){
+func readFromServer(conn net.Conn,stopRoutine <-chan os.Signal){
 
+	reader := bufio.NewReader(conn) 
 
 	for{
-		_, msg, err := conn.ReadMessage()
+		select{
+		case <-stopRoutine:
+			fmt.Println("stopped reading from server")
+			return
+		default:
+			msg, err := reader.ReadString('\n')
 		
-		if err!=nil{
-			fmt.Println("cannot read from server",err)
-			os.Exit(1)
+			if err!=nil{
+				fmt.Println("cannot read from server",err)
+				os.Exit(1)
+			}
+			fmt.Println(msg)
 		}
-		fmt.Println(string(msg))
 	}
 
 }
 
-func StartClient(stopRoutine <-chan interface{}){
-	conn, _,err := websocket.DefaultDialer.Dial("ws://localhost:3000",nil)
+func readAndSendInput(conn net.Conn,username string){
+	reader := bufio.NewReader(conn)
+	fmt.Print(username,"> ")
 
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading input:", err)
+		return
+	}
+	input = strings.TrimSpace(input)
+
+	_,err = conn.Write([]byte(username+"> "+input))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error writing to server:", err)
+		return
+	}
+}
+
+func StartClient(closeSignal <-chan os.Signal){
+
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("enter username: ")
+	username,_ := reader.ReadString('\n')
+	username = strings.TrimSpace(username)
+
+	conn,err := net.Dial("tcp","localhost:8080")
+	fmt.Println("connected to: ",conn.LocalAddr())
 	if err!=nil{
 		log.Fatalln("err when connecting to server: ",err)
 	}
 	defer conn.Close()
+		
+	_,err = conn.Write([]byte(username+"\n"))
+	if err!= nil{
+		log.Fatalln(err)
+	}
 
-	reader := bufio.NewReader(os.Stdin)	
-	
-	go readFromServer(conn)
+	go readFromServer(conn,closeSignal)
 
 	for{
 		select {
-		case <-stopRoutine:
+		case <-closeSignal:
 			fmt.Println("Closing client ...")
 			conn.Close()
 			return
 
 		default:
-			fmt.Print(">")
+			fmt.Print(username,"> ")
 
 			input, err := reader.ReadString('\n')
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error reading input:", err)
 				continue
 			}
-			trimmedInput := strings.TrimSpace(input)
+			input = strings.TrimSpace(input)
 
-			err = conn.WriteMessage(websocket.TextMessage,[]byte(trimmedInput))
+			_,err = conn.Write([]byte(username+"> "+input))
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error writing to server:", err)
 				return

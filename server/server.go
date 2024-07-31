@@ -1,106 +1,84 @@
 package server
 
 import (
+	"bufio"
 	"fmt"
 	"log"
-	
-	"net/http"
+	"os"
 
-	"github.com/gorilla/websocket"
+	"net"
 )
 
-type Message struct{
-	Text string
-}
-
 type WsServer struct{
-	Conn *websocket.Conn
-	Clients map[*websocket.Conn]bool
-	Broadcast chan *Message
-}
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize: 1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow any origin (or add logic to validate origin)
-		return true
-	},
+	// Conn net.Conn
+	Clients map[net.Conn]string
 }
 
 func InitServer() *WsServer{
 	return &WsServer{
-		Clients: make(map[*websocket.Conn]bool),
-		Broadcast: make(chan *Message),
+		Clients: make(map[net.Conn]string),
 	}
 }
 
+func (ws *WsServer)Register(conn net.Conn)string{
+	reader := bufio.NewReader(conn)
+	username,err := reader.ReadString('\n')
+	if err!=nil{
+		fmt.Println("Error while registering: ",err)
+	}
+	ws.Clients[conn] = username
+	fmt.Println("regeisted client: ",conn.LocalAddr())
+	return username
+}
 
 
-func (ws *WsServer)HandleWsConn(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+func (ws *WsServer)ListenWsConns(closeSignal <-chan os.Signal) {
+	listener,err := net.Listen("tcp","localhost:8080")
+	
 	if err != nil {
 		log.Fatalln(err)
 		return
 	}
-
-	ws.Conn = conn
-	ws.Clients[conn] = true
-	defer func(){
-		conn.Close()
-		delete(ws.Clients,conn)
-	}()
-	for{
-	
-		messageType, message, err := conn.ReadMessage()
-		if err != nil {
-			log.Fatalln("couldnt read: ",err)
-			return
-		}
-
-		fmt.Println(">Received message:", string(message))	
-		msg := &Message{
-			Text: string(message),
-		}		
-
-		for client := range ws.Clients{
-			if client == ws.Conn{
+	defer listener.Close()
+	fmt.Println("listneing on :8080 locally, details:",listener.Addr())
+	go func(){
+		for{
+			conn,err := listener.Accept()
+			if err!=nil{
+				fmt.Println("counldn't accept conn: ",err)
 				continue
 			}
-			err:= client.WriteMessage(messageType,[]byte(msg.Text))
-			if err!= nil{
-				fmt.Println("Write Error: ",err)
-				client.Close()
-				delete(ws.Clients,client)
-			}
+	
+			go ws.HandleWsConn(conn)
+		
 		}
-	}
+	}()
+
+	<-closeSignal
+	fmt.Println("server closed.")
+
+}
+
+func (ws *WsServer)HandleWsConn(conn net.Conn){
+	defer conn.Close()
+	//register conn with username
+	username := ws.Register(conn)
+	BroadcastMsg(fmt.Sprintf("%s has joined the chat.",username),ws.Clients,conn)
+
 	
 }
 
-func (ws *WsServer)BroadcastMsg(stopRoutine <-chan interface{}){
-	outer:
-	for{	
-		select{
-		case msg := <-ws.Broadcast:
-
-			for client := range ws.Clients{
-				if client == ws.Conn{
-					continue
-				}
-				err:= client.WriteMessage(websocket.TextMessage,[]byte(msg.Text))
-				if err!= nil{
-					fmt.Println("Write Error: ",err)
-					client.Close()
-					delete(ws.Clients,client)
-				}
-			}
-
-		case <-stopRoutine:
-			fmt.Println("Closing Broadcast ...")
-			break outer;
+func BroadcastMsg(msg string, clients map[net.Conn]string, sender net.Conn ){
+	for client := range clients{
+		if client == sender{
+			continue
+		}
+		_,err:= client.Write([]byte(msg))
+		if err!= nil{
+			fmt.Println("Write Error: ",err)
+			fmt.Println("proceeding to remove client")
+			client.Close()
+			delete(clients,client)
 		}
 	}
 }
-
-
