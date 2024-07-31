@@ -53,7 +53,7 @@ func (ws *WsServer)ListenWsConns() {
 		return
 	}
 	
-	fmt.Println("listneing on :8080 locally, details:",listener.Addr())
+	fmt.Println("listneing on :",listener.Addr())
 	go func(){
 		closeSignal := make(chan os.Signal,1)
 	
@@ -81,14 +81,13 @@ func (ws *WsServer)ListenWsConns() {
 func (ws *WsServer)HandleWsConn(conn net.Conn){
 	defer conn.Close()
 	//register conn with username
-	username := ws.Register(conn)
-	fmt.Println(ws.Clients)
-	ws.BroadcastMsg(fmt.Sprintf("%s has joined the chat.",username),conn)
+	_= ws.Register(conn)
 
+	//read ms from client and broadcast to other clients
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		msg := scanner.Text()
-		ws.BroadcastMsg(fmt.Sprintf("%s> %s\n", username, msg), conn)
+		ws.BroadcastMsg(fmt.Sprintf("%s\n",msg),conn) //check here
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -104,12 +103,12 @@ func (ws *WsServer)HandleWsConn(conn net.Conn){
 func (ws *WsServer)BroadcastMsg(msg string, sender net.Conn ){
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	fmt.Println(ws.Clients,"in broadcast")
+	fmt.Println(ws.Clients,"in server")
 	for client := range ws.Clients{
 		if client == sender{
 			continue
 		}
-		fmt.Println("writing to :",client.RemoteAddr())
+		fmt.Println("write to ->",client.RemoteAddr())
 		_,err:=client.Write([]byte(msg))
 		if err!= nil{
 			fmt.Println("Write Error: ",err)
