@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"log"
 	"os/signal"
-	
+
 	"strings"
 	"syscall"
 
 	// "log"
 	"net"
 	"os"
+
+	"github.com/fatih/color"
 )
 
 func readFromServer(conn net.Conn) {
@@ -50,7 +52,11 @@ func readAndSendInput(conn net.Conn,username string){
 		if err!=nil{
 			fmt.Println("error reading from terminal")
 		}
-		_,err = conn.Write([]byte(username+">"+input))
+		c := color.New(color.FgCyan)
+		// coloredInput := color.CyanString(username+"> "+input)
+		cyanInput := c.Sprint(username+"> "+input)
+		_,err = conn.Write([]byte(cyanInput))
+		c.DisableColor()
 		if err!=nil{
 			fmt.Println("error writing to server:",err)
 		}
