@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"os/signal"
+	"syscall"
 
 	// "log"
 	"net"
@@ -11,47 +13,41 @@ import (
 	"strings"
 )
 
-func readFromServer(conn net.Conn,stopRoutine <-chan os.Signal){
+func readFromServer(conn net.Conn) {
+    scanner := bufio.NewScanner(conn)
 
-	reader := bufio.NewReader(conn) 
+    for scanner.Scan() {
+        msg := scanner.Text()
+        fmt.Println(msg)
+    }
 
-	for{
-		select{
-		case <-stopRoutine:
-			fmt.Println("stopped reading from server")
-			return
-		default:
-			msg, err := reader.ReadString('\n')
-		
-			if err!=nil{
-				fmt.Println("cannot read from server",err)
-				os.Exit(1)
-			}
-			fmt.Println(msg)
-		}
-	}
-
+    if err := scanner.Err(); err != nil {
+        fmt.Println("Error reading from server:", err)
+    }
 }
+
 
 func readAndSendInput(conn net.Conn,username string){
-	reader := bufio.NewReader(conn)
-	fmt.Print(username,"> ")
+	scanner := bufio.NewScanner(os.Stdin)
+	
+	for scanner.Scan(){
+		fmt.Print(username,">")
+		input := scanner.Text()
+		_,err := conn.Write([]byte(username+">"+input+"\n"))
+		if err!=nil{
+			fmt.Println("error writing to server:",err)
+		}
+		
+	}
 
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error reading input:", err)
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading from server:", err)
 		return
 	}
-	input = strings.TrimSpace(input)
 
-	_,err = conn.Write([]byte(username+"> "+input))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error writing to server:", err)
-		return
-	}
 }
 
-func StartClient(closeSignal <-chan os.Signal){
+func StartClient(){
 
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("enter username: ")
@@ -59,42 +55,33 @@ func StartClient(closeSignal <-chan os.Signal){
 	username = strings.TrimSpace(username)
 
 	conn,err := net.Dial("tcp","localhost:8080")
-	fmt.Println("connected to: ",conn.LocalAddr())
+	fmt.Println("connected to:",conn.LocalAddr())
 	if err!=nil{
-		log.Fatalln("err when connecting to server: ",err)
+		log.Fatalln("err when connecting to server:",err)
 	}
-	defer conn.Close()
 		
 	_,err = conn.Write([]byte(username+"\n"))
 	if err!= nil{
 		log.Fatalln(err)
 	}
 
-	go readFromServer(conn,closeSignal)
+	closeSignal := make(chan os.Signal,1)
 
-	for{
-		select {
-		case <-closeSignal:
-			fmt.Println("Closing client ...")
-			conn.Close()
-			return
+	go func(){
+		closeSignal := make(chan os.Signal,1)
+	
+		signal.Notify(closeSignal,syscall.SIGINT,syscall.SIGTERM)
+		<-closeSignal
+		conn.Close()
+		os.Exit(0)
+	}()
 
-		default:
-			fmt.Print(username,"> ")
+	go readFromServer(conn)
+	go readAndSendInput(conn,username)
 
-			input, err := reader.ReadString('\n')
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error reading input:", err)
-				continue
-			}
-			input = strings.TrimSpace(input)
-
-			_,err = conn.Write([]byte(username+"> "+input))
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error writing to server:", err)
-				return
-			}
-		}
-	}
+	
+	<-closeSignal
+	fmt.Println("Client closing...")
+	
 }
 

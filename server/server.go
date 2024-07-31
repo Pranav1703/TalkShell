@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
 
 	"net"
 )
@@ -12,6 +16,7 @@ import (
 type WsServer struct{
 	// Conn net.Conn
 	Clients map[net.Conn]string
+	mu 		sync.Mutex
 }
 
 func InitServer() *WsServer{
@@ -20,42 +25,56 @@ func InitServer() *WsServer{
 	}
 }
 
+func StartServer(){
+	wsServer := InitServer()
+	wsServer.ListenWsConns()
+}
+
 func (ws *WsServer)Register(conn net.Conn)string{
 	reader := bufio.NewReader(conn)
 	username,err := reader.ReadString('\n')
 	if err!=nil{
 		fmt.Println("Error while registering: ",err)
 	}
+	username = strings.TrimSpace(username)
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
 	ws.Clients[conn] = username
-	fmt.Println("regeisted client: ",conn.LocalAddr())
+	fmt.Println("regeisted client: ",conn.RemoteAddr(), " with username '",username,"'")
 	return username
 }
 
 
-func (ws *WsServer)ListenWsConns(closeSignal <-chan os.Signal) {
+func (ws *WsServer)ListenWsConns() {
 	listener,err := net.Listen("tcp","localhost:8080")
 	
 	if err != nil {
 		log.Fatalln(err)
 		return
 	}
-	defer listener.Close()
+	
 	fmt.Println("listneing on :8080 locally, details:",listener.Addr())
 	go func(){
-		for{
-			conn,err := listener.Accept()
-			if err!=nil{
-				fmt.Println("counldn't accept conn: ",err)
-				continue
-			}
+		closeSignal := make(chan os.Signal,1)
 	
-			go ws.HandleWsConn(conn)
-		
-		}
+		signal.Notify(closeSignal,syscall.SIGINT,syscall.SIGTERM)
+	
+		<-closeSignal
+		listener.Close()
+		fmt.Println("tcp connection closed.")
+		os.Exit(0)
 	}()
 
-	<-closeSignal
-	fmt.Println("server closed.")
+	for{
+		conn,err := listener.Accept()
+		if err!=nil{
+			fmt.Println("counldn't accept conn: ",err)
+			continue
+		}
+
+		go ws.HandleWsConn(conn)
+	
+	}
 
 }
 
@@ -63,22 +82,47 @@ func (ws *WsServer)HandleWsConn(conn net.Conn){
 	defer conn.Close()
 	//register conn with username
 	username := ws.Register(conn)
-	BroadcastMsg(fmt.Sprintf("%s has joined the chat.",username),ws.Clients,conn)
+	fmt.Println(ws.Clients)
+	ws.BroadcastMsg(fmt.Sprintf("%s has joined the chat.",username),conn)
 
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		msg := scanner.Text()
+		ws.BroadcastMsg(fmt.Sprintf("%s> %s\n", username, msg), conn)
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading from client:", err)
+	}
+
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	delete(ws.Clients, conn)
 	
 }
 
-func BroadcastMsg(msg string, clients map[net.Conn]string, sender net.Conn ){
-	for client := range clients{
+func (ws *WsServer)BroadcastMsg(msg string, sender net.Conn ){
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	fmt.Println(ws.Clients,"in broadcast")
+	for client := range ws.Clients{
 		if client == sender{
 			continue
 		}
-		_,err:= client.Write([]byte(msg))
+		fmt.Println("writing to :",client.RemoteAddr())
+		_,err:=client.Write([]byte(msg))
 		if err!= nil{
 			fmt.Println("Write Error: ",err)
 			fmt.Println("proceeding to remove client")
 			client.Close()
-			delete(clients,client)
+			delete(ws.Clients,client)
 		}
+		// bufferedWriter := bufio.NewWriter(client)
+		// _, err := bufferedWriter.Write([]byte(msg))
+		// if err != nil {
+		//     fmt.Println("Write Error:", err)
+		// }
+		// bufferedWriter.Flush()
+
 	}
 }

@@ -8,49 +8,31 @@ import (
 
 	"fmt"
 	"os"
-	"os/signal"
-	"sync"
-	"syscall"
 )
 
 func main(){
 	
-	closeSignal := make(chan os.Signal,1)
-	
-	signal.Notify(closeSignal,syscall.SIGINT,syscall.SIGTERM)
 
-	var wg sync.WaitGroup
-
-	wsServer := server.InitServer()
-
-	fmt.Println("CHOOSE: server or cient")
+	fmt.Println("CHOOSE: 1.server or 2.client")
 	reader := bufio.NewReader(os.Stdin)
 	choice,_ := reader.ReadString('\n')
 	choice = strings.TrimSpace(choice)
 
 	switch choice {
-		case "server":
-			wg.Add(1)
-			go func(){
-				defer wg.Done()
-				wsServer.ListenWsConns(closeSignal)
-				
-			}()
+		case "1":
 			
-		case "client":
-			wg.Add(1)
-			go func(){
-				defer wg.Done()
-				client.StartClient(closeSignal)
-			}()
+			server.StartServer()
+				
+	
+			
+		case "2":
+
+			client.StartClient()
+			
 			
 		default:
 			fmt.Println("Choose between server or client")
 	}
 
 
-	<-closeSignal
-	fmt.Println("closing all goroutines")
-
-	wg.Wait()
 }
