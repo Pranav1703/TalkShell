@@ -21,11 +21,12 @@ func readFromServer(conn net.Conn) {
 
     for scanner.Scan() {
         msg := scanner.Text()
-        fmt.Printf("%s\n",msg)
+		colouredMsg := color.CyanString(msg)
+        fmt.Printf("%s\n",colouredMsg)
     }
 
     if err := scanner.Err(); err != nil {
-        fmt.Println("Error reading from server:", err)
+        color.Red("Error reading from server:", err)
     }
 }
 
@@ -52,13 +53,14 @@ func readAndSendInput(conn net.Conn,username string){
 		if err!=nil{
 			fmt.Println("error reading from terminal")
 		}
-		c := color.New(color.FgCyan)
+		// c := color.New(color.FgCyan)
 		// coloredInput := color.CyanString(username+"> "+input)
-		cyanInput := c.Sprint(username+"> "+input)
-		_,err = conn.Write([]byte(cyanInput))
-		c.DisableColor()
+		
+		// c := color.CyanString(username+"> "+input)
+		_,err = conn.Write([]byte(username+"> "+input))
+		
 		if err!=nil{
-			fmt.Println("error writing to server:",err)
+			color.Red("error writing to server:",err)
 		}
 	}
 
